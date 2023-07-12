@@ -9,7 +9,9 @@ const {
     deleteaUser,
     updateaUser,
     blockUser,
-    unBlockUser
+    unBlockUser,
+    handleRefreshToken,
+    logout
 } = require("../controller/userController");
 
 
@@ -21,5 +23,6 @@ router.delete('/:id',authMiddleWare, deleteaUser);
 router.put("/:id",authMiddleWare,updateaUser);
 router.put("/block/:id",authMiddleWare,isAdmin,blockUser);
 router.put("/unblock/:id",authMiddleWare,isAdmin,unBlockUser);
-
+router.put('/refresh',handleRefreshToken);
+router.get('/logout',logout);
 module.exports = router;

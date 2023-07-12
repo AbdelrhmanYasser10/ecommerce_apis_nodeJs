@@ -1,6 +1,9 @@
 const User = require('../models/userModel');
 const asyncHandler = require('express-async-handler');
 const generateToken = require("../config/jwtToken");
+const validateMongoDBId = require("../utils/validateMongoDB");
+const generateRefreshToken = require('../config/refreshToken');
+const jwt = require('jsonwebtoken');
 
 const createUser = asyncHandler(
     async(req, res) => {
@@ -23,13 +26,19 @@ const loginUser = asyncHandler(async(req, res) => {
     //check if user exsists or not
     const findUser = await User.findOne({ email });
     if (findUser && await findUser.isPasswordMatched(password)) {
-        res.json({
-            _id: findUser._id,
-            firstname: findUser.firstname,
-            lastname: findUser.lastname,
-            email: findUser.email,
-            mobile: findUser.mobile,
-            token: generateToken(findUser._id)
+      const refreshToken = await generateRefreshToken(findUser?._id);  
+      const updateUser = await User.findOneAndUpdate(findUser?._id,{refreshToken:refreshToken},{new:true});
+      res.cookie('refreshToken',refreshToken,{
+        httpOnly:true,
+        maxAge:72*60*60*1000,
+      });
+      res.json({
+            _id: findUser?._id,
+            firstname: findUser?.firstname,
+            lastname: findUser?.lastname,
+            email: findUser?.email,
+            mobile: findUser?.mobile,
+            token: generateToken(findUser?._id)
         });
     } else {
         throw new Error("Invalid Credentials");
@@ -54,6 +63,7 @@ const getaUser = asyncHandler(
         const {
             id
         } = req.params;
+        validateMongoDBId(id);
         try {
             const getaUser = await User.findById(id);
             res.json({
@@ -68,6 +78,7 @@ const getaUser = asyncHandler(
 const updateaUser = asyncHandler(
     async(req, res) => {
         const { id } = req.params;
+        validateMongoDBId(id);
         try {
             const updateUser = await User.findByIdAndUpdate(id, {
                 firstname: req?.body?.firstname,
@@ -91,6 +102,7 @@ const deleteaUser = asyncHandler(
         const {
             id
         } = req.params;
+        validateMongoDBId(id);
         try {
             const deleteaUser = await User.findByIdAndDelete(id);
             res.json({
@@ -106,6 +118,7 @@ const deleteaUser = asyncHandler(
 const blockUser = asyncHandler(
   async(req,res)=>{
     const { id } = req.params;
+    
     try{
       const block = await User.findByIdAndUpdate(id,{
         isBlocked:true,
@@ -141,4 +154,57 @@ const unBlockUser = asyncHandler(
   }
 );
 
-module.exports = { createUser, loginUser, getallUsers, getaUser, deleteaUser , updateaUser,blockUser,unBlockUser};
+const handleRefreshToken = asyncHandler(
+  async(req,res)=>{
+    const cookie = req.cookies;
+    if(!cookie?.refreshToken){
+      throw new Error('No refresh token in cookies');
+    
+    }
+    const refreshToken = cookie.refreshToken;
+    const user = await User.findOne({
+      refreshToken
+    });
+    if(!user){
+      throw new Error('No refresh token present in database');
+    }
+    jwt.verify(refreshToken,process.env.JWT_SECRET,(err,decoded)=>{
+      if(err || user.id !== decoded.id){
+        throw new Error('There is something wrong with refres token');
+      }
+      const accessToken = generateToken(user?._id);
+      res.json(accessToken);
+    });
+  }
+);
+
+const logout = asyncHandler(
+  async(req,res)=>{
+    const cookie = req.cookies;
+    if(!cookie?.refreshToken){
+      throw new Error('No refresh token in cookies');
+    
+    }
+    const refreshToken = cookie.refreshToken;
+    const user = await User.findOne({
+      refreshToken
+    });
+    if(!user){
+      res.clearCookie('refreshToken',{
+        httpOnly:true,
+        secure:true,
+      });
+      return res.sendStatus(204); // forbidden
+    }
+    await User.findOneAndUpdate(refreshToken,{
+      refreshToken:"",
+    });
+    res.clearCookie('refreshToken',{
+      httpOnly:true,
+      secure:true,
+    });
+    return res.sendStatus(204); 
+  }
+);
+
+module.exports = { createUser, loginUser, getallUsers, getaUser, deleteaUser , updateaUser,blockUser,unBlockUser,handleRefreshToken,logout};
